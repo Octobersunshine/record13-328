@@ -78,7 +78,40 @@ def parse_expression(expr_str):
     return evaluate
 
 
-def bisection_method(f, a, b, tol=1e-6, max_iter=100):
+def _try_expand_interval(f, a, b, max_expand_steps=50, expand_factor=2.0):
+    fa = f(a)
+    fb = f(b)
+
+    if fa * fb <= 0:
+        return a, b, fa, fb
+
+    width = b - a
+    center = (a + b) / 2.0
+
+    for step in range(1, max_expand_steps + 1):
+        new_half = width * (expand_factor ** step) / 2.0
+        new_a = center - new_half
+        new_b = center + new_half
+
+        new_fa = f(new_a)
+        new_fb = f(new_b)
+
+        if math.isnan(new_fa) or math.isinf(new_fa):
+            continue
+        if math.isnan(new_fb) or math.isinf(new_fb):
+            continue
+
+        if new_fa * fb <= 0:
+            return new_a, b, new_fa, fb
+        if fa * new_fb <= 0:
+            return a, new_b, fa, new_fb
+        if new_fa * new_fb <= 0:
+            return new_a, new_b, new_fa, new_fb
+
+    return None, None, fa, fb
+
+
+def bisection_method(f, a, b, tol=1e-6, max_iter=100, auto_expand=True, max_expand_steps=50):
     if tol <= 0:
         raise ValueError("容差必须大于0")
     if max_iter <= 0:
@@ -95,10 +128,33 @@ def bisection_method(f, a, b, tol=1e-6, max_iter=100):
         raise ValueError(f"函数在右端点 {b} 处无定义或为无穷大")
 
     if fa * fb > 0:
-        raise ValueError(
-            f"区间端点函数值同号: f({a})={fa:.6f}, f({b})={fb:.6f}。"
-            "二分法要求区间两端点函数值异号以保证至少有一个根存在。"
-        )
+        if auto_expand:
+            orig_a, orig_b = a, b
+            new_a, new_b, new_fa, new_fb = _try_expand_interval(
+                f, a, b, max_expand_steps
+            )
+            if new_a is not None:
+                a, b = new_a, new_b
+                fa, fb = new_fa, new_fb
+            else:
+                expand_radius = (orig_b - orig_a) * (2 ** max_expand_steps - 1) / 2
+                expanded_a = orig_a - expand_radius
+                expanded_b = orig_b + expand_radius
+                raise ValueError(
+                    f"区间端点函数值同号且自动扩展区间失败: "
+                    f"原始区间 f({orig_a})={fa:.6f}, f({orig_b})={fb:.6f}。"
+                    f"已尝试将区间扩展至 [{expanded_a:.2f}, {expanded_b:.2f}] 仍未找到异号区间。"
+                    f"请尝试以下方法：\n"
+                    f"  1. 手动更换搜索区间，确保 f(a) 与 f(b) 异号\n"
+                    f"  2. 先绘制函数图像观察根的大致位置\n"
+                    f"  3. 增大 max_expand_steps 参数以允许更大幅度的区间扩展"
+                )
+        else:
+            raise ValueError(
+                f"区间端点函数值同号: f({a})={fa:.6f}, f({b})={fb:.6f}。"
+                f"二分法要求区间两端点函数值异号以保证至少有一个根存在。"
+                f"请尝试更换搜索区间，或设置 auto_expand=True 自动扩展区间。"
+            )
 
     if abs(fa) < tol:
         return a, 0
@@ -125,9 +181,9 @@ def bisection_method(f, a, b, tol=1e-6, max_iter=100):
     raise RuntimeError(f"达到最大迭代次数 {max_iter} 仍未收敛")
 
 
-def find_root(expr_str, a, b, tol=1e-6, max_iter=100):
+def find_root(expr_str, a, b, tol=1e-6, max_iter=100, auto_expand=True, max_expand_steps=50):
     f = parse_expression(expr_str)
-    root, iterations = bisection_method(f, a, b, tol, max_iter)
+    root, iterations = bisection_method(f, a, b, tol, max_iter, auto_expand, max_expand_steps)
     return {
         'root': root,
         'function_value': f(root),
