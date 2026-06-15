@@ -1,4 +1,4 @@
-from bisection_root_finder import find_root, bisection_method, parse_expression
+from bisection_root_finder import find_root, bisection_method, parse_expression, newton_method
 import math
 
 
@@ -244,7 +244,7 @@ def test_auto_expand():
 
 def test_tolerance():
     print("\n" + "="*60)
-    print("五、不同容差精度测试")
+    print("五、不同容差精度测试（二分法）")
     print("="*60)
     
     expr = "x**2 - 2"
@@ -267,9 +267,102 @@ def test_tolerance():
             print(f"  ✗ 错误: {e}")
 
 
+def test_newton():
+    print("\n" + "="*60)
+    print("六、牛顿迭代法测试")
+    print("="*60)
+
+    cases = [
+        ("x**2 - 2", 1.0, 2.0, math.sqrt(2)),
+        ("x**3 - x - 2", 1.0, 2.0, 1.5213797068045676),
+        ("cos(x) - x", 0.0, 1.0, 0.7390851332151607),
+        ("exp(x) - 3*x", 0.0, 1.0, 0.6190612833574637),
+        ("log(x) - 1", 1.0, 4.0, math.e),
+        ("sin(x)", 2.0, 4.0, math.pi),
+    ]
+
+    all_pass = True
+    for expr, a, b, expected in cases:
+        print(f"\n求解: {expr} = 0")
+        try:
+            result = find_root(expr, a, b, method='newton', tol=1e-10)
+            error = abs(result['root'] - expected)
+            print(f"  根: {result['root']:.12f}")
+            print(f"  函数值: {result['function_value']:.2e}")
+            print(f"  迭代次数: {result['iterations']} ({result['method']})")
+            print(f"  与预期根误差: {error:.2e}")
+            if error < 1e-8:
+                print(f"  ✓ 牛顿法收敛成功")
+            else:
+                print(f"  ✗ 牛顿法误差过大")
+                all_pass = False
+        except Exception as e:
+            print(f"  ✗ 失败: {e}")
+            all_pass = False
+
+    return all_pass
+
+
+def test_convergence_comparison():
+    print("\n" + "="*60)
+    print("七、收敛速度对比测试（二分法 vs 牛顿法）")
+    print("="*60)
+
+    cases = [
+        ("x**2 - 2", 1.0, 2.0),
+        ("cos(x) - x", 0.0, 1.0),
+        ("x**3 - x - 2", 1.0, 2.0),
+    ]
+
+    for expr, a, b in cases:
+        print(f"\n方程: {expr} = 0")
+        try:
+            res_bis = find_root(expr, a, b, method='bisection', tol=1e-12)
+            res_new = find_root(expr, a, b, method='newton', tol=1e-12)
+            print(f"  二分法: {res_bis['iterations']} 次迭代")
+            print(f"  牛顿法: {res_new['iterations']} 次迭代")
+            if res_new['iterations'] < res_bis['iterations']:
+                print(f"  ✓ 牛顿法收敛更快（少 {res_bis['iterations'] - res_new['iterations']} 次）")
+            elif res_new['iterations'] == res_bis['iterations']:
+                print(f"  ~ 两者迭代次数相同")
+            else:
+                print(f"  ✗ 牛顿法迭代次数反而更多")
+        except Exception as e:
+            print(f"  错误: {e}")
+
+
+def test_newton_fallback():
+    print("\n" + "="*60)
+    print("八、牛顿法失败回退到二分法测试")
+    print("="*60)
+
+    print("\n测试1: cos(x) 在 x0=0 附近导数接近 0，应触发回退")
+    try:
+        f = parse_expression("cos(x)")
+        root, iters = newton_method(f, 0.01, tol=1e-6,
+                                    fallback_to_bisection=True, a=0.0, b=2.0)
+        print(f"  最终根: {root:.10f}，迭代次数: {iters}")
+        if abs(f(root)) < 1e-5:
+            print(f"  ✓ 回退成功，函数值收敛")
+        else:
+            print(f"  ✗ 回退后函数值未收敛")
+    except Exception as e:
+        print(f"  ✗ 失败: {e}")
+
+    print("\n测试2: 无效的 method 名称")
+    try:
+        result = find_root("x**2 - 2", 1.0, 2.0, method='secant')
+        print(f"  ✗ 应该报错但没有")
+    except ValueError as e:
+        if "支持的方法" in str(e):
+            print(f"  ✓ 正确提示可用方法")
+        else:
+            print(f"  ✗ 错误信息不匹配: {e}")
+
+
 def main():
     print("="*60)
-    print("二分法求根服务 - 综合测试")
+    print("二分法 & 牛顿法求根服务 - 综合测试")
     print("="*60)
     
     test_polynomial()
@@ -278,9 +371,12 @@ def main():
     test_edge_cases()
     test_auto_expand()
     test_tolerance()
+    test_newton()
+    test_convergence_comparison()
+    test_newton_fallback()
     
     print("\n" + "="*60)
-    print("测试完成")
+    print("全部测试完成")
     print("="*60)
 
 

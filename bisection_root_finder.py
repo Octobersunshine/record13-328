@@ -181,14 +181,141 @@ def bisection_method(f, a, b, tol=1e-6, max_iter=100, auto_expand=True, max_expa
     raise RuntimeError(f"达到最大迭代次数 {max_iter} 仍未收敛")
 
 
-def find_root(expr_str, a, b, tol=1e-6, max_iter=100, auto_expand=True, max_expand_steps=50):
+def _numerical_derivative(f, x, h=None):
+    if h is None:
+        h = 1e-6 * max(1.0, abs(x))
+    xph = x + h
+    xmh = x - h
+    denom = xph - xmh
+    if denom == 0.0:
+        h = 1e-6
+        xph = x + h
+        xmh = x - h
+        denom = 2.0 * h
+    return (f(xph) - f(xmh)) / denom
+
+
+def newton_method(f, x0, tol=1e-6, max_iter=100, fallback_to_bisection=True, a=None, b=None):
+    if tol <= 0:
+        raise ValueError("容差必须大于0")
+    if max_iter <= 0:
+        raise ValueError("最大迭代次数必须大于0")
+
+    x = float(x0)
+    fx = f(x)
+
+    if math.isnan(fx) or math.isinf(fx):
+        raise ValueError(f"函数在初始点 {x0} 处无定义或为无穷大")
+
+    if abs(fx) < tol:
+        return x, 0
+
+    for i in range(1, max_iter + 1):
+        dfx = _numerical_derivative(f, x)
+
+        if math.isnan(dfx) or math.isinf(dfx) or dfx == 0.0:
+            if fallback_to_bisection and a is not None and b is not None:
+                fa = f(a)
+                fb = f(b)
+                if fa * fb <= 0:
+                    return bisection_method(f, a, b, tol, max_iter)
+            raise ZeroDivisionError(
+                f"在 x={x:.10f} 处导数为0或无定义（f'={dfx:.2e}），牛顿法无法继续迭代。"
+                "请尝试更换初始值或使用二分法。"
+            )
+
+        x_next = x - fx / dfx
+
+        if math.isnan(x_next) or math.isinf(x_next):
+            if fallback_to_bisection and a is not None and b is not None:
+                fa = f(a)
+                fb = f(b)
+                if fa * fb <= 0:
+                    return bisection_method(f, a, b, tol, max_iter)
+            raise RuntimeError(
+                f"迭代值发散（x={x:.10f}, x_next={x_next}）。请更换初始值或使用二分法。"
+            )
+
+        fx_next = f(x_next)
+
+        if math.isnan(fx_next) or math.isinf(fx_next):
+            if fallback_to_bisection and a is not None and b is not None:
+                fa = f(a)
+                fb = f(b)
+                if fa * fb <= 0:
+                    return bisection_method(f, a, b, tol, max_iter)
+            raise ValueError(f"函数在 x={x_next:.10f} 处无定义或为无穷大")
+
+        if abs(fx_next) < tol or abs(x_next - x) < tol:
+            return x_next, i
+
+        x = x_next
+        fx = fx_next
+
+    if fallback_to_bisection and a is not None and b is not None:
+        fa = f(a)
+        fb = f(b)
+        if fa * fb <= 0:
+            return bisection_method(f, a, b, tol, max_iter)
+
+    raise RuntimeError(f"达到最大迭代次数 {max_iter} 仍未收敛")
+
+
+def find_root(expr_str, a, b, tol=1e-6, max_iter=100, auto_expand=True, max_expand_steps=50, method='bisection'):
     f = parse_expression(expr_str)
-    root, iterations = bisection_method(f, a, b, tol, max_iter, auto_expand, max_expand_steps)
-    return {
-        'root': root,
-        'function_value': f(root),
-        'iterations': iterations,
-        'tolerance': tol,
-        'interval': [a, b],
-        'expression': expr_str
-    }
+    method_lower = method.lower()
+
+    if method_lower == 'bisection':
+        root, iterations = bisection_method(f, a, b, tol, max_iter, auto_expand, max_expand_steps)
+        return {
+            'root': root,
+            'function_value': f(root),
+            'iterations': iterations,
+            'tolerance': tol,
+            'interval': [a, b],
+            'expression': expr_str,
+            'method': 'bisection'
+        }
+    elif method_lower == 'newton':
+        if a >= b:
+            raise ValueError("区间左端点必须小于右端点")
+        fa = f(a)
+        fb = f(b)
+
+        if fa * fb > 0:
+            if auto_expand:
+                orig_a, orig_b = a, b
+                new_a, new_b, new_fa, new_fb = _try_expand_interval(
+                    f, a, b, max_expand_steps
+                )
+                if new_a is not None:
+                    a, b = new_a, new_b
+                    fa, fb = new_fa, new_fb
+                else:
+                    raise ValueError(
+                        f"区间端点函数值同号: f({orig_a})={fa:.6f}, f({orig_b})={fb:.6f}。"
+                        f"牛顿法也需要一个包含根的初始区间。请更换搜索区间。"
+                    )
+
+        if abs(fa) < abs(fb):
+            x0 = a
+        else:
+            x0 = b
+        if abs(fa) > tol and abs(fb) > tol:
+            x0 = (a + b) / 2.0
+
+        root, iterations = newton_method(f, x0, tol, max_iter,
+                                         fallback_to_bisection=True, a=a, b=b)
+        return {
+            'root': root,
+            'function_value': f(root),
+            'iterations': iterations,
+            'tolerance': tol,
+            'interval': [a, b],
+            'expression': expr_str,
+            'method': 'newton'
+        }
+    else:
+        raise ValueError(
+            f"未知的方法 '{method}'。支持的方法: 'bisection'（二分法）, 'newton'（牛顿法）。"
+        )
